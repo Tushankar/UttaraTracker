@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const path = require('path');
 
 dotenv.config();
 
@@ -10,7 +11,10 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+
+// Serve client static files
+app.use(express.static(path.join(__dirname, '..', 'client')));
 
 // MongoDB Connection
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://Tirthoraj:Tirthoraj@cluster0.nd9yv8x.mongodb.net/Uttsss?retryWrites=true&w=majority";
@@ -25,11 +29,26 @@ const Task = require('./models/Task');
 const Goal = require('./models/Goal');
 const TimerState = require('./models/TimerState');
 
+// Auth
+const { authMiddleware, optionalAuth } = require('./middleware/auth');
+const authRoutes = require('./routes/auth');
+const aiRoutes = require('./routes/ai');
+const leaderboardRoutes = require('./routes/leaderboard');
+const badgeRoutes = require('./routes/badges');
+const chatRoutes = require('./routes/chat');
+
+// Route mounts
+app.use('/api/auth', authRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api/leaderboard', leaderboardRoutes);
+app.use('/api/badges', badgeRoutes);
+app.use('/api/chat', chatRoutes);
+
 // ─── TIMER STATE ROUTES ─────────────────────────────────
 // GET current timer state
-app.get('/api/timer', async (req, res) => {
+app.get('/api/timer', authMiddleware, async (req, res) => {
   try {
-    const userId = req.query.userId || "defaultUser";
+    const userId = req.user.id;
     const timer = await TimerState.findOne({ userId });
     if (!timer || timer.status === 'stopped') {
       return res.status(200).json({ status: 'stopped', accumulatedSeconds: 0 });
@@ -58,25 +77,23 @@ app.get('/api/timer', async (req, res) => {
 });
 
 // START or RESUME timer
-app.post('/api/timer/start', async (req, res) => {
+app.post('/api/timer/start', authMiddleware, async (req, res) => {
   try {
-    const { userId = "defaultUser", topicId, topicTitle, subject, isPomodoroMode } = req.body;
+    const userId = req.user.id;
+    const { topicId, topicTitle, subject, isPomodoroMode } = req.body;
     if (!topicId) return res.status(400).json({ error: "topicId required" });
     
     let timer = await TimerState.findOne({ userId });
     
     if (timer && timer.status === 'running') {
-      // Already running — return current state (prevent duplicates)
       return res.status(200).json({ status: 'running', message: 'Timer already running', startTime: timer.startTime });
     }
     
     if (timer && timer.status === 'paused') {
-      // RESUME: keep accumulated, set new startTime
       timer.status = 'running';
       timer.startTime = new Date();
       await timer.save();
     } else {
-      // NEW timer: reset everything
       timer = await TimerState.findOneAndUpdate(
         { userId },
         {
@@ -100,16 +117,15 @@ app.post('/api/timer/start', async (req, res) => {
 });
 
 // PAUSE timer
-app.post('/api/timer/pause', async (req, res) => {
+app.post('/api/timer/pause', authMiddleware, async (req, res) => {
   try {
-    const { userId = "defaultUser" } = req.body;
+    const userId = req.user.id;
     const timer = await TimerState.findOne({ userId });
     
     if (!timer || timer.status !== 'running') {
       return res.status(200).json({ status: timer?.status || 'stopped', message: 'Timer not running' });
     }
     
-    // Compute elapsed since startTime and add to accumulated
     const elapsedSinceStart = (Date.now() - new Date(timer.startTime).getTime()) / 1000;
     timer.accumulatedSeconds = Math.floor(timer.accumulatedSeconds + elapsedSinceStart);
     timer.startTime = null;
@@ -124,9 +140,9 @@ app.post('/api/timer/pause', async (req, res) => {
 });
 
 // STOP timer — saves session and clears state
-app.post('/api/timer/stop', async (req, res) => {
+app.post('/api/timer/stop', authMiddleware, async (req, res) => {
   try {
-    const { userId = "defaultUser" } = req.body;
+    const userId = req.user.id;
     const timer = await TimerState.findOne({ userId });
     
     if (!timer || timer.status === 'stopped') {
@@ -205,9 +221,9 @@ function getISTBoundaries() {
 }
 
 // ─── TRACKER ROUTES ──────────────────────────────────────
-app.get('/api/tracker', async (req, res) => {
+app.get('/api/tracker', authMiddleware, async (req, res) => {
   try {
-    const userId = req.query.userId || "defaultUser";
+    const userId = req.user.id;
     let tracker = await Tracker.findOne({ userId });
     
     if (!tracker) {
@@ -237,9 +253,10 @@ app.get('/api/tracker', async (req, res) => {
   }
 });
 
-app.post('/api/tracker', async (req, res) => {
+app.post('/api/tracker', authMiddleware, async (req, res) => {
   try {
-    const { userId = "defaultUser", topics, studyTimeSaved, newSession } = req.body;
+    const userId = req.user.id;
+    const { topics, studyTimeSaved, newSession } = req.body;
     const updateQuery = { topics, studyTimeSaved };
     
     if (newSession && newSession.duration > 0 && newSession.topicId) {
@@ -257,9 +274,10 @@ app.post('/api/tracker', async (req, res) => {
 });
 
 // ─── SESSION ROUTE (dedicated) ───────────────────────────
-app.post('/api/sessions', async (req, res) => {
+app.post('/api/sessions', authMiddleware, async (req, res) => {
   try {
-    const { userId = "defaultUser", duration, topicId, subject, timestamp } = req.body;
+    const userId = req.user.id;
+    const { duration, topicId, subject, timestamp } = req.body;
     if (!duration || !topicId) return res.status(400).json({ error: "duration and topicId required" });
     
     const session = { duration, topicId, subject: subject || "", timestamp: timestamp || new Date() };
@@ -277,9 +295,9 @@ app.post('/api/sessions', async (req, res) => {
 });
 
 // ─── DASHBOARD ANALYTICS ─────────────────────────────────
-app.get('/api/dashboard', async (req, res) => {
+app.get('/api/dashboard', authMiddleware, async (req, res) => {
   try {
-    const userId = req.query.userId || "defaultUser";
+    const userId = req.user.id;
     const tracker = await Tracker.findOne({ userId });
     const { nowIST, startOfToday, startOfWeek, startOfMonth } = getISTBoundaries();
     
@@ -299,27 +317,14 @@ app.get('/api/dashboard', async (req, res) => {
 
     const sessions = tracker.sessions;
     
-    // ── Time totals ──
     let today = 0, weekly = 0, monthly = 0;
-    
-    // ── Subject breakdown (all time) ──
     const subjectBreakdown = {};
-    
-    // ── Daily graph for current month ──
     const daysInMonth = new Date(nowIST.getFullYear(), nowIST.getMonth() + 1, 0).getDate();
     const dailyGraph = {};
     for (let i = 1; i <= daysInMonth; i++) dailyGraph[i] = 0;
-    
-    // ── Weekly bars (Mon=0 to Sun=6) ──
     const weeklyBars = [0,0,0,0,0,0,0];
-    
-    // ── Hourly heatmap (0-23) ──
     const hourlyHeatmap = new Array(24).fill(0);
-    
-    // ── Day-level totals for streak + most productive day ──
-    const dayTotals = {}; // "YYYY-MM-DD" -> seconds
-    
-    // ── Previous month total ──
+    const dayTotals = {};
     const prevMonthStart = new Date(nowIST.getFullYear(), nowIST.getMonth() - 1, 1).getTime();
     let prevMonthTotal = 0;
 
@@ -329,47 +334,40 @@ app.get('/api/dashboard', async (req, res) => {
       const dur = s.duration || 0;
       const subj = s.subject || s.topicId.split('-')[0] || 'Other';
       
-      // Time totals
       if (sTime >= startOfToday) today += dur;
       if (sTime >= startOfWeek) {
         weekly += dur;
         const dow = sIST.getDay();
-        weeklyBars[dow === 0 ? 6 : dow - 1] += dur; // Mon=0, Sun=6
+        weeklyBars[dow === 0 ? 6 : dow - 1] += dur;
       }
       if (sTime >= startOfMonth) {
         monthly += dur;
         dailyGraph[sIST.getDate()] = (dailyGraph[sIST.getDate()] || 0) + dur;
       }
       
-      // Previous month
       if (sTime >= prevMonthStart && sTime < startOfMonth) {
         prevMonthTotal += dur;
       }
       
-      // Subject breakdown (all time)
       subjectBreakdown[subj] = (subjectBreakdown[subj] || 0) + dur;
-      
-      // Hourly heatmap
       hourlyHeatmap[sIST.getHours()] += dur;
       
-      // Day totals for streak calc
       const dayKey = `${sIST.getFullYear()}-${String(sIST.getMonth()+1).padStart(2,'0')}-${String(sIST.getDate()).padStart(2,'0')}`;
       dayTotals[dayKey] = (dayTotals[dayKey] || 0) + dur;
     });
     
-    // ── Streak calculation ──
+    // Streak calculation
     let streak = 0;
     const todayKey = `${nowIST.getFullYear()}-${String(nowIST.getMonth()+1).padStart(2,'0')}-${String(nowIST.getDate()).padStart(2,'0')}`;
     let checkDate = new Date(nowIST.getFullYear(), nowIST.getMonth(), nowIST.getDate());
     
-    // If no study today yet, start checking from yesterday
     if (!dayTotals[todayKey] || dayTotals[todayKey] < 1) {
       checkDate.setDate(checkDate.getDate() - 1);
     }
     
     for (let i = 0; i < 365; i++) {
       const key = `${checkDate.getFullYear()}-${String(checkDate.getMonth()+1).padStart(2,'0')}-${String(checkDate.getDate()).padStart(2,'0')}`;
-      if (dayTotals[key] && dayTotals[key] >= 30) { // minimum 30 seconds to count
+      if (dayTotals[key] && dayTotals[key] >= 30) {
         streak++;
         checkDate.setDate(checkDate.getDate() - 1);
       } else {
@@ -377,7 +375,7 @@ app.get('/api/dashboard', async (req, res) => {
       }
     }
     
-    // ── Most productive day ──
+    // Most productive day
     let mostProductiveDay = null;
     let maxDaySeconds = 0;
     for (const [day, secs] of Object.entries(dayTotals)) {
@@ -387,7 +385,7 @@ app.get('/api/dashboard', async (req, res) => {
       }
     }
     
-    // ── Most productive hour ──
+    // Most productive hour
     let mostProductiveHour = 0;
     let maxHourSeconds = 0;
     hourlyHeatmap.forEach((secs, hour) => {
@@ -416,9 +414,9 @@ app.get('/api/dashboard', async (req, res) => {
 });
 
 // ─── TASKS CRUD ──────────────────────────────────────────
-app.get('/api/tasks', async (req, res) => {
+app.get('/api/tasks', authMiddleware, async (req, res) => {
   try {
-    const userId = req.query.userId || "defaultUser";
+    const userId = req.user.id;
     const tasks = await Task.find({ userId }).sort({ createdAt: -1 });
     res.status(200).json(tasks);
   } catch (error) {
@@ -426,9 +424,10 @@ app.get('/api/tasks', async (req, res) => {
   }
 });
 
-app.post('/api/tasks', async (req, res) => {
+app.post('/api/tasks', authMiddleware, async (req, res) => {
   try {
-    const { userId = "defaultUser", title, subject, dueDate, isRepeating, repeatInterval } = req.body;
+    const userId = req.user.id;
+    const { title, subject, dueDate, isRepeating, repeatInterval } = req.body;
     if (!title) return res.status(400).json({ error: "title required" });
     
     const task = new Task({ userId, title, subject, dueDate, isRepeating, repeatInterval });
@@ -439,7 +438,7 @@ app.post('/api/tasks', async (req, res) => {
   }
 });
 
-app.put('/api/tasks/:id', async (req, res) => {
+app.put('/api/tasks/:id', authMiddleware, async (req, res) => {
   try {
     const updates = req.body;
     if (updates.completed) updates.completedAt = new Date();
@@ -452,7 +451,7 @@ app.put('/api/tasks/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/tasks/:id', async (req, res) => {
+app.delete('/api/tasks/:id', authMiddleware, async (req, res) => {
   try {
     await Task.findByIdAndDelete(req.params.id);
     res.status(200).json({ success: true });
@@ -462,9 +461,9 @@ app.delete('/api/tasks/:id', async (req, res) => {
 });
 
 // ─── GOALS CRUD ──────────────────────────────────────────
-app.get('/api/goals', async (req, res) => {
+app.get('/api/goals', authMiddleware, async (req, res) => {
   try {
-    const userId = req.query.userId || "defaultUser";
+    const userId = req.user.id;
     const goals = await Goal.find({ userId }).sort({ month: -1 });
     res.status(200).json(goals);
   } catch (error) {
@@ -472,9 +471,10 @@ app.get('/api/goals', async (req, res) => {
   }
 });
 
-app.post('/api/goals', async (req, res) => {
+app.post('/api/goals', authMiddleware, async (req, res) => {
   try {
-    const { userId = "defaultUser", title, targetHours, month } = req.body;
+    const userId = req.user.id;
+    const { title, targetHours, month } = req.body;
     if (!title || !targetHours || !month) return res.status(400).json({ error: "title, targetHours, month required" });
     
     const goal = new Goal({ userId, title, targetHours, month });
@@ -485,7 +485,7 @@ app.post('/api/goals', async (req, res) => {
   }
 });
 
-app.put('/api/goals/:id', async (req, res) => {
+app.put('/api/goals/:id', authMiddleware, async (req, res) => {
   try {
     const goal = await Goal.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!goal) return res.status(404).json({ error: "Goal not found" });
@@ -495,13 +495,18 @@ app.put('/api/goals/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/goals/:id', async (req, res) => {
+app.delete('/api/goals/:id', authMiddleware, async (req, res) => {
   try {
     await Goal.findByIdAndDelete(req.params.id);
     res.status(200).json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// ─── CATCH-ALL: serve client HTML for SPA-like routing ──
+app.get(/.*/, (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'client', 'index.html'));
 });
 
 // ─── START SERVER ────────────────────────────────────────
