@@ -4,61 +4,7 @@ const { authMiddleware } = require("../middleware/auth");
 const Tracker = require("../models/Tracker");
 const Goal = require("../models/Goal");
 const Task = require("../models/Task");
-
-const OR_MODEL = "nvidia/nemotron-nano-12b-v2-vl:free";
-
-// Helper: call OpenRouter API
-async function callOpenRouter(messages) {
-  if (!process.env.OPENROUTER_API_KEY)
-    throw new Error("OPENROUTER_API_KEY not set");
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout
-
-  try {
-    const response = await fetch(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://uttaratracker.onrender.com",
-          "X-Title": "SSC Study Platform",
-        },
-        body: JSON.stringify({ model: OR_MODEL, messages }),
-        signal: controller.signal,
-      },
-    );
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`OpenRouter ${response.status}: ${err}`);
-    }
-    const data = await response.json();
-    console.log(
-      "OpenRouter raw response:",
-      JSON.stringify(data).substring(0, 500),
-    );
-    if (!data.choices || data.choices.length === 0) {
-      throw new Error(
-        `OpenRouter returned no choices. Response: ${JSON.stringify(data)}`,
-      );
-    }
-    const content = data.choices[0]?.message?.content;
-    if (!content) {
-      throw new Error(
-        `OpenRouter choice has no content. Choice: ${JSON.stringify(data.choices[0])}`,
-      );
-    }
-    return content;
-  } catch (err) {
-    if (err.name === "AbortError")
-      throw new Error("OpenRouter AI is taking too long. Please try again.");
-    throw err;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
+const { callOpenRouterRacing } = require("../utils/aiRacing");
 
 // Helper: analyze habits
 function analyzeHabits(tracker, goals, tasks) {
@@ -167,9 +113,7 @@ router.post("/recommendations", authMiddleware, async (req, res) => {
 
 Give ONE specific, actionable study recommendation in 2-3 sentences. Be motivating but firm.`;
 
-        const aiText = await callOpenRouter([
-          { role: "user", content: prompt },
-        ]);
+        const aiText = await callOpenRouterRacing([{ role: "user", content: prompt }]);
         if (aiText) recommendation = aiText;
       } catch (aiError) {
         console.log("AI enhancement skipped:", aiError.message);
@@ -208,7 +152,8 @@ router.post("/flashcards", authMiddleware, async (req, res) => {
 Return ONLY a JSON array with this format (no markdown, no explanation):
 [{"front":"question","back":"answer"},...]`;
 
-        const text = (await callOpenRouter([{ role: "user", content: prompt }]))
+        const rawAI = await callOpenRouterRacing([{ role: "user", content: prompt }]);
+        const text = rawAI
           .replace(/```json?\n?/g, "")
           .replace(/```/g, "")
           .trim();
@@ -267,7 +212,8 @@ Return ONLY a JSON array (no markdown):
 [{"question":"...","options":["A","B","C","D"],"correct":0},...]
 where correct is the 0-based index of the right answer.`;
 
-        const text = (await callOpenRouter([{ role: "user", content: prompt }]))
+        const rawAI = await callOpenRouterRacing([{ role: "user", content: prompt }]);
+        const text = rawAI
           .replace(/```json?\n?/g, "")
           .replace(/```/g, "")
           .trim();

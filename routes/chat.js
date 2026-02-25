@@ -2,74 +2,24 @@ const express = require("express");
 const router = express.Router();
 const { authMiddleware } = require("../middleware/auth");
 const Chat = require("../models/Chat");
+const { callOpenRouterRacing } = require("../utils/aiRacing");
 
 // System prompt for the chatbot
-const SYSTEM_PROMPT = `You are "SSC Study Buddy", a friendly and knowledgeable AI assistant built into the SSC Study Platform. Your role:
-- Help with SSC CGL, CHSL, MTS exam preparation
-- Explain concepts in Quant, English, Reasoning, and GK
-- Provide study tips, mnemonics, and shortcuts
-- Motivate the student (her name is Uttara)
-- Analyze images of questions/notes if provided
-- Keep answers concise but thorough
-- Use emojis occasionally to stay engaging
-- If asked about non-study topics, gently redirect to studies
+const SYSTEM_PROMPT = `You are "SSC Study Buddy", an expert AI tutor for SSC CGL, CHSL, and MTS exam preparation. Your primary job is to answer questions directly and clearly.
 
-Always be supportive, encouraging, and helpful. You're her personal study coach!`;
+CORE BEHAVIORS:
+- When asked a question or quiz problem → give the DIRECT ANSWER first, then a short explanation
+- For math/quant → show the formula, shortcut, and a worked example
+- For GK/current affairs → give the precise fact with context
+- For grammar/English → state the rule, then apply it
+- For reasoning → explain the pattern/logic step by step
+- Keep answers focused — no filler, no lengthy intro
+- Use emojis occasionally (✅ for answers, 📌 for shortcuts, 🧠 for tips)
+- If a question has options (A/B/C/D), identify the correct one and explain why others are wrong
+- Analyze images of questions/notes if provided (the student may photograph exam papers)
+- The student's name is Uttara. Motivate her when she seems tired or frustrated.
 
-const OR_MODEL = "nvidia/nemotron-nano-12b-v2-vl:free";
-
-// Helper: call OpenRouter API
-async function callOpenRouter(messages) {
-  if (!process.env.OPENROUTER_API_KEY)
-    throw new Error("OPENROUTER_API_KEY not set");
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout
-
-  try {
-    const response = await fetch(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://uttaratracker.onrender.com",
-          "X-Title": "SSC Study Platform",
-        },
-        body: JSON.stringify({ model: OR_MODEL, messages }),
-        signal: controller.signal,
-      },
-    );
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`OpenRouter ${response.status}: ${err}`);
-    }
-    const data = await response.json();
-    console.log(
-      "OpenRouter raw response:",
-      JSON.stringify(data).substring(0, 500),
-    );
-    if (!data.choices || data.choices.length === 0) {
-      throw new Error(
-        `OpenRouter returned no choices. Response: ${JSON.stringify(data)}`,
-      );
-    }
-    const content = data.choices[0]?.message?.content;
-    if (!content) {
-      throw new Error(
-        `OpenRouter choice has no content. Choice: ${JSON.stringify(data.choices[0])}`,
-      );
-    }
-    return content;
-  } catch (err) {
-    if (err.name === "AbortError")
-      throw new Error("OpenRouter AI is taking too long. Please try again.");
-    throw err;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
+FORMAT: Answer → Explanation → Shortcut/Trick (if any) → Quick Example (if helpful)`;
 
 // GET /api/chat — List all chats for user
 router.get("/", authMiddleware, async (req, res) => {
@@ -183,7 +133,8 @@ router.post("/", authMiddleware, async (req, res) => {
         }
       }
 
-      aiResponse = await callOpenRouter(messages);
+      const hasRecentImages = recentMessages.some((m) => m.image);
+      aiResponse = await callOpenRouterRacing(messages, hasRecentImages);
     } catch (aiError) {
       console.error("OpenRouter chat error:", aiError.message);
       aiResponse = getFallbackResponse(message);
