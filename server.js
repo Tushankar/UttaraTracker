@@ -44,6 +44,28 @@ app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/badges', badgeRoutes);
 app.use('/api/chat', chatRoutes);
 
+// ─── HEALTH CHECK ────────────────────────────────────────
+app.get('/health', (req, res) => {
+  const dbState = ['disconnected', 'connected', 'connecting', 'disconnecting'];
+  res.status(200).json({
+    status: 'ok',
+    uptime: `${Math.floor(process.uptime())}s`,
+    timestamp: new Date().toISOString(),
+    mongodb: dbState[mongoose.connection.readyState] || 'unknown',
+    ai: {
+      provider: 'OpenRouter',
+      strategy: 'Promise.any() race — fastest model wins',
+      textModels: [
+        'meta-llama/llama-3.3-70b-instruct:free',
+        'mistralai/mistral-small-3.1-24b-instruct:free',
+        'google/gemma-3-12b-it:free',
+        'arcee-ai/trinity-large-preview:free',
+      ],
+      visionModel: 'nvidia/nemotron-nano-12b-v2-vl:free',
+    },
+  });
+});
+
 // ─── TIMER STATE ROUTES ─────────────────────────────────
 // GET current timer state
 app.get('/api/timer', authMiddleware, async (req, res) => {
