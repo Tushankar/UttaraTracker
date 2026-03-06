@@ -4,7 +4,6 @@ const { authMiddleware } = require("../middleware/auth");
 const Tracker = require("../models/Tracker");
 const Goal = require("../models/Goal");
 const Task = require("../models/Task");
-const { callOpenRouterRacing } = require("../utils/aiRacing");
 
 // Helper: analyze habits
 function analyzeHabits(tracker, goals, tasks) {
@@ -101,25 +100,6 @@ router.post("/recommendations", authMiddleware, async (req, res) => {
       priority = "Maintain Momentum";
     }
 
-    // Enhance recommendation with OpenRouter AI
-    if (process.env.OPENROUTER_API_KEY) {
-      try {
-        const prompt = `You are an expert SSC exam coach. Based on this student's study data:
-- Total study hours: ${analysis.totalStudyHours}
-- Weakest subject this week: ${analysis.weakestSubject.name} (${Math.round(analysis.weakestSubject.recentTime / 60)} min)
-- Strongest subject this week: ${analysis.strongestSubject.name} (${Math.round(analysis.strongestSubject.recentTime / 60)} min)
-- Topics done: ${analysis.doneTopics}, needs revision: ${analysis.reviseTopics}
-- Pending tasks: ${analysis.pendingTasks}
-
-Give ONE specific, actionable study recommendation in 2-3 sentences. Be motivating but firm.`;
-
-        const aiText = await callOpenRouterRacing([{ role: "user", content: prompt }]);
-        if (aiText) recommendation = aiText;
-      } catch (aiError) {
-        console.log("AI enhancement skipped:", aiError.message);
-      }
-    }
-
     res.json({ recommendation, priority, analysis });
   } catch (error) {
     console.error("AI Recommendation error:", error);
@@ -144,27 +124,6 @@ router.post("/flashcards", authMiddleware, async (req, res) => {
     // Smart extraction: split notes into key points
     const lines = notes.split(/[\n.!?]+/).filter((l) => l.trim().length > 5);
 
-    if (process.env.OPENROUTER_API_KEY) {
-      try {
-        const prompt = `Create exactly 5 flashcards from these study notes on "${topicTitle}":
-"${notes}"
-
-Return ONLY a JSON array with this format (no markdown, no explanation):
-[{"front":"question","back":"answer"},...]`;
-
-        const rawAI = await callOpenRouterRacing([{ role: "user", content: prompt }]);
-        const text = rawAI
-          .replace(/```json?\n?/g, "")
-          .replace(/```/g, "")
-          .trim();
-        flashcards = JSON.parse(text);
-      } catch (aiError) {
-        console.log(
-          "AI flashcard generation failed, using fallback:",
-          aiError.message,
-        );
-      }
-    }
 
     // Fallback: generate simple flashcards from parsed notes
     if (flashcards.length === 0) {
@@ -203,28 +162,6 @@ router.post("/quiz", authMiddleware, async (req, res) => {
 
     let questions = [];
 
-    if (process.env.OPENROUTER_API_KEY) {
-      try {
-        const prompt = `Create a 5-question multiple choice quiz from these notes on "${topicTitle}":
-"${notes}"
-
-Return ONLY a JSON array (no markdown):
-[{"question":"...","options":["A","B","C","D"],"correct":0},...]
-where correct is the 0-based index of the right answer.`;
-
-        const rawAI = await callOpenRouterRacing([{ role: "user", content: prompt }]);
-        const text = rawAI
-          .replace(/```json?\n?/g, "")
-          .replace(/```/g, "")
-          .trim();
-        questions = JSON.parse(text);
-      } catch (aiError) {
-        console.log(
-          "AI quiz generation failed, using fallback:",
-          aiError.message,
-        );
-      }
-    }
 
     // Fallback quiz
     if (questions.length === 0) {

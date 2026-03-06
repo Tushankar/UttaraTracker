@@ -196,7 +196,11 @@ app.post('/api/timer/stop', authMiddleware, async (req, res) => {
       if (tracker && tracker.topics) {
         const topicKey = timer.topicId;
         if (!tracker.topics[topicKey]) {
-          tracker.topics[topicKey] = { status: 'pending', notes: '', timeSpent: 0 };
+          tracker.topics[topicKey] = { status: 'pending', notes: '', timeSpent: 0, title: timer.topicTitle || topicKey };
+        }
+        // Ensure title is saved if it was missing but we have it now
+        if (timer.topicTitle && !tracker.topics[topicKey].title) {
+          tracker.topics[topicKey].title = timer.topicTitle;
         }
         tracker.topics[topicKey].timeSpent = (tracker.topics[topicKey].timeSpent || 0) + totalSeconds;
         tracker.markModified('topics');
@@ -304,11 +308,27 @@ app.post('/api/sessions', authMiddleware, async (req, res) => {
     
     const session = { duration, topicId, subject: subject || "", timestamp: timestamp || new Date() };
     
-    const tracker = await Tracker.findOneAndUpdate(
-      { userId },
-      { $push: { sessions: session } },
-      { new: true, upsert: true }
-    );
+    let tracker = await Tracker.findOne({ userId });
+    if (!tracker) {
+      tracker = new Tracker({ userId, topics: {}, sessions: [] });
+    }
+    
+    tracker.sessions.push(session);
+    
+    if (topicId) {
+      if (!tracker.topics) tracker.topics = {};
+      if (!tracker.topics[topicId]) {
+        // Since it's a manual entry, use topicId as title
+        let parsedTitle = topicId;
+        if (topicId.endsWith('-manual')) parsedTitle = subject + " (Manual)";
+        tracker.topics[topicId] = { status: 'pending', notes: '', timeSpent: 0, title: parsedTitle };
+      }
+      tracker.topics[topicId].timeSpent = (tracker.topics[topicId].timeSpent || 0) + duration;
+      tracker.markModified('topics');
+    }
+    
+    await tracker.save();
+    
     res.status(200).json({ success: true, sessionCount: tracker.sessions.length });
   } catch (error) {
     console.error("POST /api/sessions error:", error);
