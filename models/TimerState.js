@@ -35,6 +35,11 @@ const TimerStateSchema = new mongoose.Schema({
   isPomodoroMode: {
     type: Boolean,
     default: false
+  },
+  pomodoroStage: {
+    type: String,
+    enum: ['work', 'break'],
+    default: 'work'
   }
 }, { timestamps: true });
 

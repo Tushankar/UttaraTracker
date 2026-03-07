@@ -90,7 +90,8 @@ app.get('/api/timer', authMiddleware, async (req, res) => {
       topicId: timer.topicId,
       topicTitle: timer.topicTitle,
       subject: timer.subject,
-      isPomodoroMode: timer.isPomodoroMode
+      isPomodoroMode: timer.isPomodoroMode,
+      pomodoroStage: timer.pomodoroStage
     });
   } catch (error) {
     console.error("GET /api/timer error:", error);
@@ -102,7 +103,7 @@ app.get('/api/timer', authMiddleware, async (req, res) => {
 app.post('/api/timer/start', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { topicId, topicTitle, subject, isPomodoroMode } = req.body;
+    const { topicId, topicTitle, subject, isPomodoroMode, pomodoroStage } = req.body;
     if (!topicId) return res.status(400).json({ error: "topicId required" });
     
     let timer = await TimerState.findOne({ userId });
@@ -125,13 +126,20 @@ app.post('/api/timer/start', authMiddleware, async (req, res) => {
           topicId: topicId || '',
           topicTitle: topicTitle || '',
           subject: subject || '',
-          isPomodoroMode: isPomodoroMode || false
+          isPomodoroMode: isPomodoroMode || false,
+          pomodoroStage: pomodoroStage || 'work'
         },
         { upsert: true, new: true }
       );
     }
     
-    res.status(200).json({ status: timer.status, startTime: timer.startTime, accumulatedSeconds: timer.accumulatedSeconds });
+    res.status(200).json({ 
+      status: timer.status, 
+      startTime: timer.startTime, 
+      accumulatedSeconds: timer.accumulatedSeconds,
+      isPomodoroMode: timer.isPomodoroMode,
+      pomodoroStage: timer.pomodoroStage
+    });
   } catch (error) {
     console.error("POST /api/timer/start error:", error);
     res.status(500).json({ error: error.message });
@@ -185,6 +193,7 @@ app.post('/api/timer/stop', authMiddleware, async (req, res) => {
         { $push: { sessions: {
           duration: totalSeconds,
           topicId: timer.topicId,
+          topicTitle: timer.topicTitle || "",
           subject: timer.subject || '',
           timestamp: new Date()
         }}},
@@ -303,10 +312,16 @@ app.post('/api/tracker', authMiddleware, async (req, res) => {
 app.post('/api/sessions', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { duration, topicId, subject, timestamp } = req.body;
+    const { duration, topicId, topicTitle, subject, timestamp } = req.body;
     if (!duration || !topicId) return res.status(400).json({ error: "duration and topicId required" });
     
-    const session = { duration, topicId, subject: subject || "", timestamp: timestamp || new Date() };
+    const session = { 
+      duration, 
+      topicId, 
+      topicTitle: topicTitle || "",
+      subject: subject || "", 
+      timestamp: timestamp || new Date() 
+    };
     
     let tracker = await Tracker.findOne({ userId });
     if (!tracker) {
@@ -346,6 +361,7 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
     if (!tracker || !tracker.sessions.length) {
       return res.status(200).json({
         today: 0, weekly: 0, monthly: 0,
+        topics: {},
         subjectBreakdown: {},
         dailyGraph: {},
         weeklyBars: [0,0,0,0,0,0,0],
@@ -439,6 +455,7 @@ app.get('/api/dashboard', authMiddleware, async (req, res) => {
 
     res.status(200).json({
       today, weekly, monthly,
+      topics: tracker.topics || {},
       subjectBreakdown,
       dailyGraph,
       weeklyBars,

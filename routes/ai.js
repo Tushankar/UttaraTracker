@@ -211,8 +211,9 @@ router.get("/forecast", authMiddleware, async (req, res) => {
     const doneTopics = Object.values(topics).filter(
       (t) => t.status === "done",
     ).length;
-    const totalTopics = 83; // Total SSC syllabus topics
-    const remaining = totalTopics - doneTopics;
+    // Estimate total topics (since it can grow dynamically, base it on the max of what they have or a baseline 83)
+    const totalTopics = Math.max(83, Object.keys(topics).length + 10);
+    const remaining = Math.max(0, totalTopics - doneTopics);
 
     // Calculate average study time per day over last 30 days
     const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;

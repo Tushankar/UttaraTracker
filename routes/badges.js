@@ -157,6 +157,10 @@ router.get('/', authMiddleware, async (req, res) => {
     const totalSeconds = sessions.reduce((acc, s) => acc + s.duration, 0);
     const doneTopics = Object.values(topics).filter(t => t.status === 'done').length;
     
+    // Dynamically calculate total topics length in tracker.topics or fall back to 83
+    const knownTopicsCount = Object.keys(topics).length;
+    const estimatedTotalTopics = Math.max(83, knownTopicsCount + 10);
+    
     const badgeData = {
       totalSessions: sessions.length,
       nightSessions,
@@ -168,7 +172,7 @@ router.get('/', authMiddleware, async (req, res) => {
       totalHours: totalSeconds / 3600,
       weekSubjects: weekSubjects.size,
       doneTopics,
-      completionPercent: Math.round(doneTopics / 83 * 100)
+      completionPercent: Math.round((doneTopics / estimatedTotalTopics) * 100)
     };
     
     // Check badges

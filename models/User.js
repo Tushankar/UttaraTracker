@@ -40,12 +40,21 @@ const UserSchema = new mongoose.Schema({
     icon: String,
     earnedAt: { type: Date, default: Date.now }
   }],
-  preferences: {
-    theme: { type: String, enum: ['light', 'dark', 'system'], default: 'system' },
-    notifications: { type: Boolean, default: true },
-    soundEnabled: { type: Boolean, default: true }
-  }
-}, { timestamps: true });
+    preferences: {
+      theme: { type: String, enum: ['light', 'dark', 'system'], default: 'system' },
+      notifications: { type: Boolean, default: true },
+      soundEnabled: { type: Boolean, default: true }
+    },
+    customSubjects: [{
+      name: { type: String, required: true },
+      color: { type: String, default: '#3d7fff' }
+    }],
+    customTopics: [{
+      subject: { type: String, required: true },
+      id: { type: String, required: true },
+      title: { type: String, required: true }
+    }]
+  }, { timestamps: true });
 
 // Hash password before saving
 UserSchema.pre('save', async function() {

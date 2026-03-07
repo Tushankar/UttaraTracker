@@ -126,4 +126,48 @@ router.put('/profile', authMiddleware, async (req, res) => {
   }
 });
 
+// POST /api/auth/add-subject
+router.post('/add-subject', authMiddleware, async (req, res) => {
+  try {
+    const { name, color } = req.body;
+    if (!name) return res.status(400).json({ error: 'Subject name required.' });
+
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    // Check if already exists
+    if (user.customSubjects.some(s => s.name.toLowerCase() === name.toLowerCase())) {
+      return res.status(400).json({ error: 'Subject already exists.' });
+    }
+
+    user.customSubjects.push({ name, color: color || '#2563eb' });
+    await user.save();
+
+    res.status(200).json({ user: user.toJSON() });
+  } catch (error) {
+    console.error('Add subject error:', error);
+    res.status(500).json({ error: 'Server error adding subject.' });
+  }
+});
+
+// POST /api/auth/add-topic
+router.post('/add-topic', authMiddleware, async (req, res) => {
+  try {
+    const { subject, title } = req.body;
+    if (!subject || !title) return res.status(400).json({ error: 'Subject and title required.' });
+
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    const id = `c${Date.now()}`; // Unique custom prefix
+    user.customTopics.push({ subject, id, title });
+    await user.save();
+
+    res.status(200).json({ user: user.toJSON() });
+  } catch (error) {
+    console.error('Add topic error:', error);
+    res.status(500).json({ error: 'Server error adding topic.' });
+  }
+});
+
 module.exports = router;

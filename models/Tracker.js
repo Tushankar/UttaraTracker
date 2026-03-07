@@ -19,6 +19,7 @@ const TrackerSchema = new mongoose.Schema({
     timestamp: { type: Date, default: Date.now },
     duration: { type: Number, required: true },
     topicId: { type: String, required: true },
+    topicTitle: { type: String, default: "" },
     subject: { type: String, default: "" }
   }]
 }, { timestamps: true });
