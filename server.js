@@ -14,8 +14,10 @@ const io = new Server(server, {
   cors: {
     origin: [
       "https://studytrackertt.netlify.app",
+      "https://uttaratracker.onrender.com",
       "http://localhost:3000",
-      "http://localhost:5000",
+      "https://uttaratracker.onrender.com/api",
+      "http://127.0.0.1:5501",
     ],
     credentials: true,
   },
@@ -27,8 +29,10 @@ app.use(
   cors({
     origin: [
       "https://studytrackertt.netlify.app",
+      "https://uttaratracker.onrender.com",
       "http://localhost:3000",
-      "http://localhost:5000",
+      "https://uttaratracker.onrender.com/api",
+      "http://127.0.0.1:5501",
     ],
     credentials: true,
   }),
