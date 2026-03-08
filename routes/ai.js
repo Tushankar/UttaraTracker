@@ -5,17 +5,36 @@ const Tracker = require("../models/Tracker");
 const Goal = require("../models/Goal");
 const Task = require("../models/Task");
 
-// Helper: analyze habits
-function analyzeHabits(tracker, goals, tasks) {
+// Helper: analyze habits WITH FULL SYLLABUS SYNC
+function analyzeHabits(tracker, goals, tasks, allSubjects = []) {
   const subjects = {};
   const sessions = tracker?.sessions || [];
 
+  // First, initialize ALL subjects from syllabus (newly added or not started)
+  allSubjects.forEach((subj) => {
+    if (!subjects[subj]) {
+      subjects[subj] = {
+        totalTime: 0,
+        sessions: 0,
+        recentTime: 0,
+        isNew: true,
+      };
+    }
+  });
+
+  // Then, overlay actual study sessions
   sessions.forEach((s) => {
     const subj = s.subject || "Other";
     if (!subjects[subj])
-      subjects[subj] = { totalTime: 0, sessions: 0, recentTime: 0 };
+      subjects[subj] = {
+        totalTime: 0,
+        sessions: 0,
+        recentTime: 0,
+        isNew: true,
+      };
     subjects[subj].totalTime += s.duration;
     subjects[subj].sessions++;
+    subjects[subj].isNew = false; // Mark as started
 
     const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
     if (new Date(s.timestamp).getTime() > weekAgo) {
@@ -45,12 +64,18 @@ function analyzeHabits(tracker, goals, tasks) {
   ).length;
   const totalTopics = Object.keys(topics).length;
 
+  // Track newly added subjects (not yet studied)
+  const newSubjects = Object.entries(subjects)
+    .filter(([_, data]) => data.isNew && data.sessions === 0)
+    .map(([name]) => name);
+
   return {
     subjects,
     weakestSubject: weakest ? { name: weakest[0], ...weakest[1] } : null,
     strongestSubject: strongest
       ? { name: strongest[0], ...strongest[1] }
       : null,
+    newSubjects, // Newly added subjects not yet started
     pendingTasks,
     completedTasks,
     doneTopics,
@@ -67,18 +92,20 @@ function analyzeHabits(tracker, goals, tasks) {
 router.post("/recommendations", authMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
+    const { allSubjects = [] } = req.body; // Client sends all subjects from syllabusData
     const tracker = await Tracker.findOne({ userId });
     const goals = await Goal.find({ userId });
     const tasks = await Task.find({ userId });
 
-    const analysis = analyzeHabits(tracker, goals, tasks);
+    // Pass all subjects so analysis includes newly added subjects
+    const analysis = analyzeHabits(tracker, goals, tasks, allSubjects);
 
     if (!analysis || !analysis.weakestSubject) {
       return res.json({
         recommendation:
           "Start your study journey! Pick any subject from the roadmap and begin with the first topic. Aim for at least 30 minutes today.",
         priority: "Start Studying",
-        analysis: { totalStudyHours: 0 },
+        analysis: { totalStudyHours: 0, newSubjects: allSubjects },
       });
     }
 
@@ -86,7 +113,12 @@ router.post("/recommendations", authMiddleware, async (req, res) => {
     let recommendation = "";
     let priority = "";
 
-    if (analysis.reviseTopics > 3) {
+    // Check if there are newly added subjects to surface
+    if (analysis.newSubjects && analysis.newSubjects.length > 0) {
+      const newSubjectsList = analysis.newSubjects.slice(0, 3).join(", ");
+      recommendation = `You've added ${analysis.newSubjects.length} new subject(s): ${newSubjectsList}. Start with these before diving deeper into existing subjects. Then focus on "${analysis.weakestSubject.name}" which needs attention.`;
+      priority = `Start New Subjects: ${newSubjectsList}`;
+    } else if (analysis.reviseTopics > 3) {
       recommendation = `You have ${analysis.reviseTopics} topics marked for revision. Focus on revising "${analysis.weakestSubject.name}" first — it has the least recent study time (${Math.round(analysis.weakestSubject.recentTime / 60)} min this week). Revision before new topics builds stronger retention.`;
       priority = "Revision Sprint";
     } else if (analysis.weakestSubject.recentTime < 1800) {
@@ -124,7 +156,6 @@ router.post("/flashcards", authMiddleware, async (req, res) => {
     // Smart extraction: split notes into key points
     const lines = notes.split(/[\n.!?]+/).filter((l) => l.trim().length > 5);
 
-
     // Fallback: generate simple flashcards from parsed notes
     if (flashcards.length === 0) {
       flashcards = lines.slice(0, 5).map((line, i) => ({
@@ -161,7 +192,6 @@ router.post("/quiz", authMiddleware, async (req, res) => {
     }
 
     let questions = [];
-
 
     // Fallback quiz
     if (questions.length === 0) {
