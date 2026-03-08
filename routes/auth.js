@@ -3,21 +3,25 @@ const router = express.Router();
 const User = require('../models/User');
 const { generateToken, authMiddleware } = require('../middleware/auth');
 const multer = require('multer');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const path = require('path');
 const fs = require('fs');
 
-// Configure Multer for local storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const dir = 'uploads/avatars';
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, 'avatar-' + uniqueSuffix + path.extname(file.originalname));
+// Cloudinary Configuration
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
+// Configure Multer with Cloudinary Storage
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'avatars',
+    allowed_formats: ['jpg', 'png', 'jpeg', 'webp'],
+    transformation: [{ width: 500, height: 500, crop: 'limit' }]
   }
 });
 
@@ -219,10 +223,9 @@ router.post('/upload-avatar', authMiddleware, upload.single('avatar'), async (re
       return res.status(400).json({ error: 'No file uploaded.' });
     }
 
-    // Return the relative URL
-    const relativePath = `uploads/avatars/${req.file.filename}`;
+    // Return the secure URL from Cloudinary
     res.status(200).json({ 
-      url: relativePath,
+      url: req.file.path,
       message: 'Avatar uploaded successfully.' 
     });
   } catch (error) {
