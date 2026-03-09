@@ -14,9 +14,9 @@ const io = new Server(server, {
   cors: {
     origin: [
       "https://studytrackertt.netlify.app",
-      "http://localhost:5000",
+      "https://uttaratracker.onrender.com",
       "http://localhost:3000",
-      "http://localhost:5000",
+      "https://uttaratracker.onrender.com",
       "http://127.0.0.1:5501",
     ],
     credentials: true,
@@ -29,9 +29,9 @@ app.use(
   cors({
     origin: [
       "https://studytrackertt.netlify.app",
-      "http://localhost:5000",
+      "https://uttaratracker.onrender.com",
       "http://localhost:3000",
-      "http://localhost:5000",
+      "https://uttaratracker.onrender.com",
       "http://127.0.0.1:5501",
     ],
     credentials: true,
@@ -87,11 +87,24 @@ app.use("/api/goals", goalRoutes);
 // ─── GLOBAL CHAT ROUTES & SOCKETS ────────────────────────
 const GlobalMessage = require("./models/GlobalMessage");
 
+function getStartOfISTDay() {
+  const d = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 app.get("/api/global-chat", authMiddleware, async (req, res) => {
   try {
-    const messages = await GlobalMessage.find()
+    const startOfToday = getStartOfISTDay();
+    
+    // Deleting previous day messages automatically from the database
+    await GlobalMessage.deleteMany({ timestamp: { $lt: startOfToday } });
+
+    // Only show today's messages
+    const messages = await GlobalMessage.find({ timestamp: { $gte: startOfToday } })
       .sort({ timestamp: 1 })
-      .limit(100);
+      .limit(200);
+      
     res.json(messages);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -124,6 +137,48 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("delete_message", async (data) => {
+    // data: { messageId, userId }
+    try {
+      const msg = await GlobalMessage.findById(data.messageId);
+      if (!msg) return;
+      
+      // Security: Only sender can delete for everyone
+      if (msg.senderId.toString() !== data.userId) return;
+
+      msg.isDeleted = true;
+      msg.content = "This message was deleted";
+      await msg.save();
+
+      io.emit("message_updated", msg);
+    } catch (err) {
+      console.error("Delete message error:", err);
+    }
+  });
+
+  socket.on("mark_read", async (data) => {
+    // data: { messageId, userId, displayName, avatar }
+    try {
+      const msg = await GlobalMessage.findById(data.messageId);
+      if (!msg || msg.isDeleted) return;
+
+      // Don't mark self-messages as read by self for now, or just check if already in list
+      const alreadyRead = msg.readBy.some(r => r.userId === data.userId);
+      if (!alreadyRead) {
+        msg.readBy.push({
+          userId: data.userId,
+          displayName: data.displayName,
+          avatar: data.avatar,
+          at: new Date()
+        });
+        await msg.save();
+        io.emit("message_updated", msg);
+      }
+    } catch (err) {
+      console.error("Mark read error:", err);
+    }
+  });
+
   socket.on("update_status", (data) => {
     // data: { userId, displayName, avatar, status: 'studying' | 'idle' }
     if (data.status === 'studying') {
@@ -146,13 +201,21 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
-    // Note: We don't necessarily remove from activeLearners on disconnect 
-    // because the timer might still be running on a different tab,
-    // and the server is stateless regarding timer duration.
-    // However, if we want strict real-time presence, we could track socketIds.
-    // For now, status comes from explicit timer actions.
   });
 });
+
+// Periodic Cleanup: Delete messages from previous days every hour
+setInterval(async () => {
+  try {
+    const startOfToday = getStartOfISTDay();
+    const result = await GlobalMessage.deleteMany({ timestamp: { $lt: startOfToday } });
+    if (result.deletedCount > 0) {
+      console.log(`🧹 Periodic cleanup: Deleted ${result.deletedCount} old global chat messages.`);
+    }
+  } catch (err) {
+    console.error("Periodic chat cleanup error:", err);
+  }
+}, 3600000); 
 
 // ─── HEALTH CHECK ────────────────────────────────────────
 app.get("/health", (req, res) => {

@@ -22,7 +22,17 @@ const GlobalMessageSchema = new mongoose.Schema({
   timestamp: {
     type: Date,
     default: Date.now
-  }
+  },
+  isDeleted: {
+    type: Boolean,
+    default: false
+  },
+  readBy: [{
+    userId: String,
+    displayName: String,
+    avatar: String,
+    at: { type: Date, default: Date.now }
+  }]
 });
 
 // Create index to auto-delete messages older than 7 days (optional, to keep DB clean)
