@@ -14,9 +14,9 @@ const io = new Server(server, {
   cors: {
     origin: [
       "https://studytrackertt.netlify.app",
-      "https://uttaratracker.onrender.com",
+      "http://localhost:5000",
       "http://localhost:3000",
-      "https://uttaratracker.onrender.com",
+      "http://localhost:5000",
       "http://127.0.0.1:5501",
     ],
     credentials: true,
@@ -29,9 +29,9 @@ app.use(
   cors({
     origin: [
       "https://studytrackertt.netlify.app",
-      "https://uttaratracker.onrender.com",
+      "http://localhost:5000",
       "http://localhost:3000",
-      "https://uttaratracker.onrender.com",
+      "http://localhost:5000",
       "http://127.0.0.1:5501",
     ],
     credentials: true,
@@ -98,8 +98,14 @@ app.get("/api/global-chat", authMiddleware, async (req, res) => {
   }
 });
 
+
+const activeLearners = new Map(); // userId -> { displayName, avatar, status }
+
 io.on("connection", (socket) => {
   console.log("User connected to global chat:", socket.id);
+
+  // Send initial active learners list to new connection
+  socket.emit("active_learners_list", Array.from(activeLearners.values()));
 
   socket.on("send_global_message", async (data) => {
     try {
@@ -118,8 +124,33 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("update_status", (data) => {
+    // data: { userId, displayName, avatar, status: 'studying' | 'idle' }
+    if (data.status === 'studying') {
+      activeLearners.set(data.userId, { 
+        userId: data.userId, 
+        displayName: data.displayName, 
+        avatar: data.avatar, 
+        status: 'studying' 
+      });
+    } else {
+      activeLearners.delete(data.userId);
+    }
+    
+    // Broadcast status to global chat for hover indicator
+    socket.broadcast.emit("user_status_changed", data);
+    
+    // Broadcast full active learners list for the top bar
+    io.emit("active_learners_list", Array.from(activeLearners.values()));
+  });
+
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
+    // Note: We don't necessarily remove from activeLearners on disconnect 
+    // because the timer might still be running on a different tab,
+    // and the server is stateless regarding timer duration.
+    // However, if we want strict real-time presence, we could track socketIds.
+    // For now, status comes from explicit timer actions.
   });
 });
 

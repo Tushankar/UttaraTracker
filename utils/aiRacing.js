@@ -35,7 +35,7 @@ async function callOpenRouterRacing(messages, isVision = false) {
           headers: {
             "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://uttaratracker.onrender.com",
+            "HTTP-Referer": "http://localhost:5000",
             "X-Title": "SSC Study Platform",
           },
           body: JSON.stringify({ model, messages }),

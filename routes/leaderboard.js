@@ -157,14 +157,23 @@ router.get("/weekly-winner", async (req, res) => {
       if (topUser) {
         const user = await User.findById(topUser);
         if (user) {
-          winner = new WeeklyChampion({
-            weekStart: lastWeekStart,
-            userId: user._id,
-            displayName: user.displayName,
-            avatar: user.avatar,
-            totalDuration: maxDuration,
-          });
-          await winner.save();
+          try {
+            winner = new WeeklyChampion({
+              weekStart: lastWeekStart,
+              userId: user._id,
+              displayName: user.displayName,
+              avatar: user.avatar,
+              totalDuration: maxDuration,
+            });
+            await winner.save();
+          } catch (saveErr) {
+            // If another request saved it simultaneously, catch the duplicate key error
+            if (saveErr.code === 11000) {
+              winner = await WeeklyChampion.findOne({ weekStart: lastWeekStart });
+            } else {
+              throw saveErr;
+            }
+          }
         }
       }
     }
