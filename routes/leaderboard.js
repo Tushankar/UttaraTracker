@@ -247,4 +247,75 @@ router.get("/weekly-champions", async (req, res) => {
   }
 });
 
+// GET /api/leaderboard/time-based — Get time-based leaderboard (Today, Week, Month, Overall)
+router.get("/time-based", async (req, res) => {
+  try {
+    const users = await User.find({}).select("displayName avatar");
+    const trackers = await Tracker.find({}).select("userId sessions");
+
+    const now = new Date();
+    
+    // Get start of today (IST)
+    const today = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+    // Get start of week (IST)
+    const startOfWeek = getStartOfISTWeek(now);
+
+    // Get start of month (IST)
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    const timeLeaderboard = users.map((user) => {
+      const tracker = trackers.find((t) => t.userId === user._id.toString());
+      
+      let todayHours = 0;
+      let weekHours = 0;
+      let monthHours = 0;
+      let overallHours = 0;
+
+      if (tracker && tracker.sessions) {
+        tracker.sessions.forEach((s) => {
+          const sDate = new Date(s.timestamp);
+          const durationHours = s.duration / 3600;
+
+          overallHours += durationHours;
+
+          if (sDate >= startOfMonth) {
+            monthHours += durationHours;
+          }
+          if (sDate >= startOfWeek) {
+            weekHours += durationHours;
+          }
+          if (sDate >= startOfToday) {
+            todayHours += durationHours;
+          }
+        });
+      }
+
+      return {
+        id: user._id,
+        displayName: user.displayName,
+        avatar: user.avatar,
+        todayHours: Math.round(todayHours * 10) / 10,
+        weekHours: Math.round(weekHours * 10) / 10,
+        monthHours: Math.round(monthHours * 10) / 10,
+        overallHours: Math.round(overallHours * 10) / 10,
+      };
+    });
+
+    // Sort by monthHours descending
+    timeLeaderboard.sort((a, b) => b.monthHours - a.monthHours);
+
+    // Add rank
+    timeLeaderboard.forEach((item, index) => {
+      item.rank = index + 1;
+    });
+
+    res.json({ leaderboard: timeLeaderboard });
+  } catch (error) {
+    console.error("Time-based leaderboard error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
