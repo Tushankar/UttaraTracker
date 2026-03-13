@@ -88,7 +88,9 @@ app.use("/api/goals", goalRoutes);
 const GlobalMessage = require("./models/GlobalMessage");
 
 function getStartOfISTDay() {
-  const d = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+  const d = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }),
+  );
   d.setHours(0, 0, 0, 0);
   return d;
 }
@@ -96,21 +98,22 @@ function getStartOfISTDay() {
 app.get("/api/global-chat", authMiddleware, async (req, res) => {
   try {
     const startOfToday = getStartOfISTDay();
-    
+
     // Deleting previous day messages automatically from the database
     await GlobalMessage.deleteMany({ timestamp: { $lt: startOfToday } });
 
     // Only show today's messages
-    const messages = await GlobalMessage.find({ timestamp: { $gte: startOfToday } })
+    const messages = await GlobalMessage.find({
+      timestamp: { $gte: startOfToday },
+    })
       .sort({ timestamp: 1 })
       .limit(200);
-      
+
     res.json(messages);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
-
 
 const activeLearners = new Map(); // userId -> { displayName, avatar, status }
 
@@ -142,7 +145,7 @@ io.on("connection", (socket) => {
     try {
       const msg = await GlobalMessage.findById(data.messageId);
       if (!msg) return;
-      
+
       // Security: Only sender can delete for everyone
       if (msg.senderId.toString() !== data.userId) return;
 
@@ -163,13 +166,13 @@ io.on("connection", (socket) => {
       if (!msg || msg.isDeleted) return;
 
       // Don't mark self-messages as read by self for now, or just check if already in list
-      const alreadyRead = msg.readBy.some(r => r.userId === data.userId);
+      const alreadyRead = msg.readBy.some((r) => r.userId === data.userId);
       if (!alreadyRead) {
         msg.readBy.push({
           userId: data.userId,
           displayName: data.displayName,
           avatar: data.avatar,
-          at: new Date()
+          at: new Date(),
         });
         await msg.save();
         io.emit("message_updated", msg);
@@ -181,26 +184,39 @@ io.on("connection", (socket) => {
 
   socket.on("update_status", (data) => {
     // data: { userId, displayName, avatar, status: 'studying' | 'idle' }
-    if (data.status === 'studying') {
-      activeLearners.set(data.userId, { 
-        userId: data.userId, 
-        displayName: data.displayName, 
-        avatar: data.avatar, 
-        status: 'studying' 
+    if (data.status === "studying") {
+      activeLearners.set(data.userId, {
+        userId: data.userId,
+        displayName: data.displayName,
+        avatar: data.avatar,
+        status: "studying",
       });
     } else {
       activeLearners.delete(data.userId);
     }
-    
+
     // Broadcast status to global chat for hover indicator
     socket.broadcast.emit("user_status_changed", data);
-    
+
     // Broadcast full active learners list for the top bar
     io.emit("active_learners_list", Array.from(activeLearners.values()));
   });
 
+  // Typing indicator events
+  socket.on("user_typing", (data) => {
+    // data: { userId, displayName }
+    socket.broadcast.emit("user_typing", data);
+  });
+
+  socket.on("user_stop_typing", (data) => {
+    // data: { userId }
+    socket.broadcast.emit("user_stop_typing", data);
+  });
+
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
+    // Broadcast stop typing on disconnect so indicators clear
+    socket.broadcast.emit("user_stop_typing", { userId: socket.id });
   });
 });
 
@@ -208,14 +224,18 @@ io.on("connection", (socket) => {
 setInterval(async () => {
   try {
     const startOfToday = getStartOfISTDay();
-    const result = await GlobalMessage.deleteMany({ timestamp: { $lt: startOfToday } });
+    const result = await GlobalMessage.deleteMany({
+      timestamp: { $lt: startOfToday },
+    });
     if (result.deletedCount > 0) {
-      console.log(`🧹 Periodic cleanup: Deleted ${result.deletedCount} old global chat messages.`);
+      console.log(
+        `🧹 Periodic cleanup: Deleted ${result.deletedCount} old global chat messages.`,
+      );
     }
   } catch (err) {
     console.error("Periodic chat cleanup error:", err);
   }
-}, 3600000); 
+}, 3600000);
 
 // ─── HEALTH CHECK ────────────────────────────────────────
 app.get("/health", (req, res) => {
