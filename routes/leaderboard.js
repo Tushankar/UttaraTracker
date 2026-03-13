@@ -62,9 +62,8 @@ router.get("/", async (req, res) => {
 });
 
 // POST /api/leaderboard/recalculate — Recalculate focus points for a user
-router.post("/recalculate", authMiddleware, async (req, res) => {
+async function recalculateUserPoints(userId) {
   try {
-    const userId = req.user.id;
     const tracker = await Tracker.findOne({ userId });
     const tasks = await Task.find({ userId });
 
@@ -108,15 +107,27 @@ router.post("/recalculate", authMiddleware, async (req, res) => {
     );
 
     await User.findByIdAndUpdate(userId, { focusPoints });
-
-    res.json({
+    
+    return {
       focusPoints,
       breakdown: {
         studyHours: Math.round(studyHours * 10) / 10,
         completedTasks,
         streak,
       },
-    });
+    };
+  } catch (error) {
+    console.error("Error in recalculateUserPoints:", error);
+    throw error;
+  }
+}
+
+// POST /api/leaderboard/recalculate — Recalculate focus points for a user
+router.post("/recalculate", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const result = await recalculateUserPoints(userId);
+    res.json(result);
   } catch (error) {
     console.error("Recalculate error:", error);
     res.status(500).json({ error: error.message });
@@ -318,4 +329,4 @@ router.get("/time-based", async (req, res) => {
   }
 });
 
-module.exports = router;
+module.exports = { router, recalculateUserPoints };

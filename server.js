@@ -69,7 +69,7 @@ const TimerState = require("./models/TimerState");
 const { authMiddleware, optionalAuth } = require("./middleware/auth");
 const authRoutes = require("./routes/auth");
 const aiRoutes = require("./routes/ai");
-const leaderboardRoutes = require("./routes/leaderboard");
+const { router: leaderboardRoutes, recalculateUserPoints } = require("./routes/leaderboard");
 const badgeRoutes = require("./routes/badges");
 const chatRoutes = require("./routes/chat");
 const taskRoutes = require("./routes/tasks");
@@ -434,6 +434,13 @@ app.post("/api/timer/stop", authMiddleware, async (req, res) => {
           (tracker.topics[topicKey].timeSpent || 0) + totalSeconds;
         tracker.markModified("topics");
         await tracker.save();
+
+        // Recalculate points after session is saved
+        try {
+          await recalculateUserPoints(userId);
+        } catch (pointErr) {
+          console.error("Error recalcuating points after timer stop:", pointErr);
+        }
       }
     }
 
@@ -595,6 +602,13 @@ app.post("/api/sessions", authMiddleware, async (req, res) => {
     }
 
     await tracker.save();
+
+    // Recalculate points after manual session is saved
+    try {
+      await recalculateUserPoints(userId);
+    } catch (pointErr) {
+      console.error("Error recalcuating points after manual session:", pointErr);
+    }
 
     res
       .status(200)
@@ -786,6 +800,16 @@ app.put("/api/tasks/:id", authMiddleware, async (req, res) => {
       new: true,
     });
     if (!task) return res.status(404).json({ error: "Task not found" });
+
+    // Recalculate points if task completion changed
+    if (updates.hasOwnProperty("completed")) {
+      try {
+        await recalculateUserPoints(req.user.id);
+      } catch (pointErr) {
+        console.error("Error recalcuating points after task update:", pointErr);
+      }
+    }
+
     res.status(200).json(task);
   } catch (error) {
     res.status(500).json({ error: error.message });
