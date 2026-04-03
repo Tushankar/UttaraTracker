@@ -52,8 +52,44 @@ const MONGODB_URI =
 
 mongoose
   .connect(MONGODB_URI)
-  .then(() => console.log("✅ MongoDB Connected (Primary)"))
+  .then(async () => {
+    console.log("✅ MongoDB Connected (Primary)");
+    await seedAdmin();
+  })
   .catch((err) => console.error("MongoDB connection error:", err));
+
+// Admin Seeding Logic
+async function seedAdmin() {
+  try {
+    const User = require('./models/User');
+    const adminEmail = 'tushankarsaha0@gmail.com';
+    const adminPassword = '123456';
+    
+    const existingAdmin = await User.findOne({ email: adminEmail });
+    if (existingAdmin) {
+      if (existingAdmin.role !== 'admin') {
+        existingAdmin.role = 'admin';
+        await existingAdmin.save();
+        console.log('✅ Existing user promoted to Admin.');
+      } else {
+        console.log('✅ Admin user already exists and is configured.');
+      }
+      return;
+    }
+
+    const newAdmin = new User({
+      email: adminEmail,
+      password: adminPassword,
+      displayName: 'Tushankar Saha',
+      role: 'admin'
+    });
+    
+    await newAdmin.save();
+    console.log('✅ Admin user created successfully.');
+  } catch (err) {
+    console.error('❌ Error seeding admin user:', err);
+  }
+}
 
 // Backup Sync System (lazy load to avoid early require errors)
 let startBackupSync = null;
@@ -74,6 +110,7 @@ const badgeRoutes = require("./routes/badges");
 const chatRoutes = require("./routes/chat");
 const taskRoutes = require("./routes/tasks");
 const goalRoutes = require("./routes/goals");
+const adminRoutes = require("./routes/admin");
 
 // Route mounts
 app.use("/api/auth", authRoutes);
@@ -83,6 +120,7 @@ app.use("/api/badges", badgeRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/tasks", taskRoutes);
 app.use("/api/goals", goalRoutes);
+app.use("/api/admin", adminRoutes);
 
 // ─── GLOBAL CHAT ROUTES & SOCKETS ────────────────────────
 const GlobalMessage = require("./models/GlobalMessage");

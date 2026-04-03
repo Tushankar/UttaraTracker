@@ -6,14 +6,31 @@ const Tracker = require("../models/Tracker");
 const Task = require("../models/Task");
 const WeeklyChampion = require("../models/WeeklyChampion");
 
-// Helper: Get Start of IST Week (Monday)
+// Helper: Precise IST boundary calculation
+function getISTStart(date = new Date(), type = 'day') {
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  // Shift to IST to perform UTC calendar arithmetic on IST numbers
+  const d = new Date(date.getTime() + istOffset);
+  
+  if (type === 'day') {
+    d.setUTCHours(0, 0, 0, 0);
+  } else if (type === 'week') {
+    d.setUTCHours(0, 0, 0, 0);
+    const day = d.getUTCDay(); // 0 is Sun, 1 is Mon...
+    const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
+    d.setUTCDate(diff);
+  } else if (type === 'month') {
+    d.setUTCHours(0, 0, 0, 0);
+    d.setUTCDate(1);
+  }
+  
+  // Shift back to UTC to get the true epoch time for that IST boundary
+  return new Date(d.getTime() - istOffset);
+}
+
+// Keep for compatibility but refactor using the precise helper
 function getStartOfISTWeek(date) {
-  const d = new Date(
-    date.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }),
-  );
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  return new Date(d.getFullYear(), d.getMonth(), diff);
+  return getISTStart(date, 'week');
 }
 
 // GET /api/leaderboard
@@ -267,23 +284,26 @@ router.get("/time-based", async (req, res) => {
     const now = new Date();
     
     // Get start of today (IST)
-    const today = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const startOfToday = getISTStart(now, 'day');
 
     // Get start of week (IST)
-    const startOfWeek = getStartOfISTWeek(now);
+    const startOfWeek = getISTStart(now, 'week');
 
     // Get start of month (IST)
-    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const startOfMonth = getISTStart(now, 'month');
+
+    // Optimization: Create a Map of userId -> tracker
+    const trackerMap = new Map();
+    trackers.forEach(t => trackerMap.set(t.userId.toString(), t));
 
     const timeLeaderboard = users.map((user) => {
-      const tracker = trackers.find((t) => t.userId === user._id.toString());
+      const tracker = trackerMap.get(user._id.toString());
       
       let todayHours = 0;
       let weekHours = 0;
       let monthHours = 0;
       let overallHours = 0;
-
+ 
       if (tracker && tracker.sessions) {
         tracker.sessions.forEach((s) => {
           const sDate = new Date(s.timestamp);
@@ -307,10 +327,10 @@ router.get("/time-based", async (req, res) => {
         id: user._id,
         displayName: user.displayName,
         avatar: user.avatar,
-        todayHours: Math.round(todayHours * 10) / 10,
-        weekHours: Math.round(weekHours * 10) / 10,
-        monthHours: Math.round(monthHours * 10) / 10,
-        overallHours: Math.round(overallHours * 10) / 10,
+        todayHours,     // Stop rounding in backend to preserve precision
+        weekHours,
+        monthHours,
+        overallHours,
       };
     });
 

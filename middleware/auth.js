@@ -7,7 +7,7 @@ function generateToken(userId) {
   return jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 }
 
-function authMiddleware(req, res, next) {
+async function authMiddleware(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -16,13 +16,29 @@ function authMiddleware(req, res, next) {
 
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = { id: decoded.id };
+    
+    // Fetch user to get current role
+    const User = require('../models/User');
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found.' });
+    }
+
+    req.user = { id: user._id, role: user.role };
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ error: 'Token expired. Please log in again.' });
     }
     return res.status(401).json({ error: 'Invalid token.' });
+  }
+}
+
+function adminMiddleware(req, res, next) {
+  if (req.user && req.user.role === 'admin') {
+    next();
+  } else {
+    res.status(403).json({ error: 'Access denied. Admin privileges required.' });
   }
 }
 
@@ -41,4 +57,4 @@ function optionalAuth(req, res, next) {
   next();
 }
 
-module.exports = { authMiddleware, optionalAuth, generateToken, JWT_SECRET };
+module.exports = { authMiddleware, optionalAuth, adminMiddleware, generateToken, JWT_SECRET };

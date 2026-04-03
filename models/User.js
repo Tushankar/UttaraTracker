@@ -23,6 +23,11 @@ const UserSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  role: {
+    type: String,
+    enum: ['user', 'admin'],
+    default: 'user'
+  },
   studyGoals: {
     dailyHours: { type: Number, default: 8 },
     weeklyHours: { type: Number, default: 40 },

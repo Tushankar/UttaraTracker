@@ -97,11 +97,39 @@ const BADGE_DEFINITIONS = [
     check: (data) => data.doneTopics >= 20
   },
   {
-    id: 'half_way',
-    name: 'Halfway There',
-    description: 'Complete 50% of all topics',
-    icon: '🎯',
-    check: (data) => data.completionPercent >= 50
+    id: 'scholar',
+    name: 'Scholar',
+    description: 'Study for 10+ hours in a single week',
+    icon: '📜',
+    check: (data) => data.weekHours >= 10
+  },
+  {
+    id: 'deep_worker',
+    name: 'Deep Worker',
+    description: 'Complete a study session longer than 2 hours',
+    icon: '🧘',
+    check: (data) => data.maxSessionDuration >= 2
+  },
+  {
+    id: 'monthly_boss',
+    name: 'Monthly Boss',
+    description: 'Accumulate 30+ hours of study in a single month',
+    icon: '🏢',
+    check: (data) => data.monthHours >= 30
+  },
+  {
+    id: 'quick_learner',
+    name: 'Quick Learner',
+    description: 'Complete 5 different topics in one day',
+    icon: '⚡',
+    check: (data) => data.maxTopicsInDay >= 5
+  },
+  {
+    id: 'night_owl_elite',
+    name: 'Night Owl Elite',
+    description: 'Complete 10+ study sessions after 10 PM',
+    icon: '🌌',
+    check: (data) => data.nightSessions >= 10
   }
 ];
 
@@ -123,12 +151,19 @@ router.get('/', authMiddleware, async (req, res) => {
     let nightSessions = 0, morningSessions = 0, saturdaySessions = 0, sundaySessions = 0;
     const dayTotals = {};
     const weekSubjects = new Set();
+    const dayTopics = {}; // Track topics completed per day
     const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const monthAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
     
+    let weekHours = 0;
+    let monthHours = 0;
+    let maxSessionDuration = 0;
+
     sessions.forEach(s => {
       const d = new Date(s.timestamp);
       const hour = d.getHours();
       const day = d.getDay();
+      const durationHrs = s.duration / 3600;
       
       if (hour >= 22 || hour < 4) nightSessions++;
       if (hour >= 4 && hour < 7) morningSessions++;
@@ -138,8 +173,32 @@ router.get('/', authMiddleware, async (req, res) => {
       const dayKey = d.toDateString();
       dayTotals[dayKey] = (dayTotals[dayKey] || 0) + s.duration;
       
-      if (d.getTime() > weekAgo && s.subject) weekSubjects.add(s.subject);
+      if (d.getTime() > weekAgo) {
+        weekHours += durationHrs;
+        if (s.subject) weekSubjects.add(s.subject);
+      }
+      if (d.getTime() > monthAgo) {
+        monthHours += durationHrs;
+      }
+      if (durationHrs > maxSessionDuration) {
+        maxSessionDuration = durationHrs;
+      }
     });
+
+    // Track topics completed per day from tracker.topics
+    // We'll approximate topics done in a day from sessions if possible, 
+    // but better to check tracker.sessions history with topicId
+    sessions.forEach(s => {
+      if (s.topicId) {
+        const d = new Date(s.timestamp).toDateString();
+        if (!dayTopics[d]) dayTopics[d] = new Set();
+        dayTopics[d].add(s.topicId);
+      }
+    });
+    
+    const maxTopicsInDay = dayTopics && Object.keys(dayTopics).length > 0 
+      ? Math.max(...Object.values(dayTopics).map(set => set.size), 0)
+      : 0;
     
     // Streak
     let streak = 0;
@@ -157,10 +216,6 @@ router.get('/', authMiddleware, async (req, res) => {
     const totalSeconds = sessions.reduce((acc, s) => acc + s.duration, 0);
     const doneTopics = Object.values(topics).filter(t => t.status === 'done').length;
     
-    // Dynamically calculate total topics length in tracker.topics or fall back to 83
-    const knownTopicsCount = Object.keys(topics).length;
-    const estimatedTotalTopics = Math.max(83, knownTopicsCount + 10);
-    
     const badgeData = {
       totalSessions: sessions.length,
       nightSessions,
@@ -172,7 +227,10 @@ router.get('/', authMiddleware, async (req, res) => {
       totalHours: totalSeconds / 3600,
       weekSubjects: weekSubjects.size,
       doneTopics,
-      completionPercent: Math.round((doneTopics / estimatedTotalTopics) * 100)
+      weekHours,
+      monthHours,
+      maxSessionDuration,
+      maxTopicsInDay
     };
     
     // Check badges
