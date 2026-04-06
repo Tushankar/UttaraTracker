@@ -21,7 +21,7 @@ router.get("/:id", authMiddleware, async (req, res) => {
     if (!goal) return res.status(404).json({ error: "Goal not found" });
 
     // Verify ownership
-    if (goal.userId !== req.user.id) {
+    if (goal.userId.toString() !== req.user.id.toString()) {
       return res.status(403).json({ error: "Unauthorized" });
     }
 
@@ -64,7 +64,7 @@ router.put("/:id", authMiddleware, async (req, res) => {
     if (!goal) return res.status(404).json({ error: "Goal not found" });
 
     // Verify ownership
-    if (goal.userId !== req.user.id) {
+    if (goal.userId.toString() !== req.user.id.toString()) {
       return res.status(403).json({ error: "Unauthorized" });
     }
 
@@ -89,7 +89,7 @@ router.delete("/:id", authMiddleware, async (req, res) => {
     if (!goal) return res.status(404).json({ error: "Goal not found" });
 
     // Verify ownership
-    if (goal.userId !== req.user.id) {
+    if (goal.userId.toString() !== req.user.id.toString()) {
       return res.status(403).json({ error: "Unauthorized" });
     }
 

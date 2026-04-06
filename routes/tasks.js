@@ -21,7 +21,7 @@ router.get("/:id", authMiddleware, async (req, res) => {
     if (!task) return res.status(404).json({ error: "Task not found" });
 
     // Verify ownership
-    if (task.userId !== req.user.id) {
+    if (task.userId.toString() !== req.user.id.toString()) {
       return res.status(403).json({ error: "Unauthorized" });
     }
 
@@ -62,7 +62,7 @@ router.put("/:id", authMiddleware, async (req, res) => {
     if (!task) return res.status(404).json({ error: "Task not found" });
 
     // Verify ownership
-    if (task.userId !== req.user.id) {
+    if (task.userId.toString() !== req.user.id.toString()) {
       return res.status(403).json({ error: "Unauthorized" });
     }
 
@@ -94,7 +94,7 @@ router.delete("/:id", authMiddleware, async (req, res) => {
     if (!task) return res.status(404).json({ error: "Task not found" });
 
     // Verify ownership
-    if (task.userId !== req.user.id) {
+    if (task.userId.toString() !== req.user.id.toString()) {
       return res.status(403).json({ error: "Unauthorized" });
     }
 
