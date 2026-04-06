@@ -657,6 +657,54 @@ app.post("/api/sessions", authMiddleware, async (req, res) => {
   }
 });
 
+app.delete("/api/sessions/:sessionId", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { sessionId } = req.params;
+
+    const tracker = await Tracker.findOne({ userId });
+    if (!tracker) return res.status(404).json({ error: "Tracker not found" });
+
+    const sessionIndex = tracker.sessions.findIndex(
+      (s) => s._id.toString() === sessionId,
+    );
+    if (sessionIndex === -1)
+      return res.status(404).json({ error: "Session not found" });
+
+    const session = tracker.sessions[sessionIndex];
+    const { duration, topicId } = session;
+
+    // Remove session
+    tracker.sessions.splice(sessionIndex, 1);
+
+    // Update topic timeSpent
+    if (topicId && tracker.topics && tracker.topics[topicId]) {
+      tracker.topics[topicId].timeSpent = Math.max(
+        0,
+        (tracker.topics[topicId].timeSpent || 0) - duration,
+      );
+      tracker.markModified("topics");
+    }
+
+    await tracker.save();
+
+    // Recalculate points after session is deleted
+    try {
+      await recalculateUserPoints(userId);
+    } catch (pointErr) {
+      console.error(
+        "Error recalcuating points after session deletion:",
+        pointErr,
+      );
+    }
+
+    res.status(200).json({ success: true, message: "Session deleted" });
+  } catch (error) {
+    console.error("DELETE /api/sessions error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ─── DASHBOARD ANALYTICS ─────────────────────────────────
 app.get("/api/dashboard", authMiddleware, async (req, res) => {
   try {
