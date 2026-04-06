@@ -5,36 +5,62 @@ const Tracker = require("../models/Tracker");
 const Goal = require("../models/Goal");
 const Task = require("../models/Task");
 
-// Helper: analyze habits WITH FULL SYLLABUS SYNC
-function analyzeHabits(tracker, goals, tasks, allSubjects = []) {
+// Helper: analyze habits WITH FULL SYLLABUS SYNC and Optional Subject Focus
+function analyzeHabits(
+  tracker,
+  goals,
+  tasks,
+  allSubjects = [],
+  focusSubject = null,
+) {
   const subjects = {};
   const sessions = tracker?.sessions || [];
 
-  // First, initialize ALL subjects from syllabus (newly added or not started)
-  allSubjects.forEach((subj) => {
+  // 1. Initialize subjects list
+  const subjectsToTrack =
+    focusSubject && allSubjects.includes(focusSubject)
+      ? [focusSubject]
+      : allSubjects;
+
+  subjectsToTrack.forEach((subj) => {
     if (!subjects[subj]) {
       subjects[subj] = {
         totalTime: 0,
         sessions: 0,
         recentTime: 0,
         isNew: true,
+        topics: {}, // Track topic-level stats if focusing
       };
     }
   });
 
-  // Then, overlay actual study sessions
+  // 2. Process sessions
   sessions.forEach((s) => {
     const subj = s.subject || "Other";
-    if (!subjects[subj])
+
+    // If focusing, ONLY count sessions for that subject
+    if (focusSubject && subj !== focusSubject) return;
+
+    if (!subjects[subj]) {
       subjects[subj] = {
         totalTime: 0,
         sessions: 0,
         recentTime: 0,
         isNew: true,
+        topics: {},
       };
+    }
+
     subjects[subj].totalTime += s.duration;
     subjects[subj].sessions++;
-    subjects[subj].isNew = false; // Mark as started
+    subjects[subj].isNew = false;
+
+    // Track topic-level time
+    if (focusSubject && s.topicId) {
+      const tId = s.topicId;
+      if (!subjects[subj].topics[tId]) subjects[subj].topics[tId] = 0;
+      subjects[subj].topics[tId] += s.duration;
+    }
 
     const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
     if (new Date(s.timestamp).getTime() > weekAgo) {
@@ -42,48 +68,74 @@ function analyzeHabits(tracker, goals, tasks, allSubjects = []) {
     }
   });
 
-  // Find weakest subject (least recent time)
   const subjectEntries = Object.entries(subjects);
   if (subjectEntries.length === 0) return null;
 
-  subjectEntries.sort((a, b) => a[1].recentTime - b[1].recentTime);
-  const weakest = subjectEntries[0];
-  const strongest = subjectEntries[subjectEntries.length - 1];
+  // 3. Find target area
+  let targetArea = null;
+  if (focusSubject) {
+    // If focusing, find the weakest TOPIC within this subject
+    // We need to know ALL topics in this subject (from tracker.topics)
+    const subjectTopics = Object.entries(tracker?.topics || {}).filter(
+      ([_, meta]) => meta.subject === focusSubject || _.startsWith(focusSubject),
+    );
 
-  // Pending tasks
-  const pendingTasks = (tasks || []).filter((t) => !t.completed).length;
-  const completedTasks = (tasks || []).filter((t) => t.completed).length;
+    const topicStats = subjectTopics.map(([id, meta]) => ({
+      id,
+      title: meta.title || id,
+      time: subjects[focusSubject]?.topics[id] || 0,
+      status: meta.status,
+    }));
 
-  // Topics progress
+    topicStats.sort((a, b) => a.time - b.time);
+    targetArea = topicStats[0]; // Weakest topic
+  } else {
+    // General mode: weakest overall subject
+    subjectEntries.sort((a, b) => a[1].recentTime - b[1].recentTime);
+    const weakest = subjectEntries[0];
+    targetArea = weakest ? { name: weakest[0], ...weakest[1] } : null;
+  }
+
+  const strongest = focusSubject
+    ? null
+    : subjectEntries.sort((a, b) => b[1].recentTime - a[1].recentTime)[0];
+
+  // 4. Pending tasks (optionally filter by subject if focusing)
+  const pendingTasks = (tasks || []).filter(
+    (t) => !t.completed && (!focusSubject || t.subject === focusSubject),
+  ).length;
+
+  // 5. Topics progress summary
   const topics = tracker?.topics || {};
-  const doneTopics = Object.values(topics).filter(
-    (t) => t.status === "done",
-  ).length;
-  const reviseTopics = Object.values(topics).filter(
-    (t) => t.status === "revise",
-  ).length;
-  const totalTopics = Object.keys(topics).length;
+  const filterTopics = focusSubject
+    ? Object.entries(topics).filter(
+        ([id, meta]) => meta.subject === focusSubject || id.startsWith(focusSubject),
+      )
+    : Object.entries(topics);
 
-  // Track newly added subjects (not yet studied)
-  const newSubjects = Object.entries(subjects)
-    .filter(([_, data]) => data.isNew && data.sessions === 0)
-    .map(([name]) => name);
+  const doneCount = filterTopics.filter(
+    ([_, t]) => t.status === "done",
+  ).length;
+  const reviseCount = filterTopics.filter(
+    ([_, t]) => t.status === "revise",
+  ).length;
 
   return {
     subjects,
-    weakestSubject: weakest ? { name: weakest[0], ...weakest[1] } : null,
+    focusSubject,
+    weakestArea: targetArea, // Topic if focus, Subject if general
     strongestSubject: strongest
       ? { name: strongest[0], ...strongest[1] }
       : null,
-    newSubjects, // Newly added subjects not yet started
     pendingTasks,
-    completedTasks,
-    doneTopics,
-    reviseTopics,
-    totalTopics,
+    doneTopics: doneCount,
+    reviseTopics: reviseCount,
     totalStudyHours:
       Math.round(
-        (sessions.reduce((acc, s) => acc + s.duration, 0) / 3600) * 10,
+        (sessions
+          .filter((s) => !focusSubject || (s.subject || "Other") === focusSubject)
+          .reduce((acc, s) => acc + s.duration, 0) / 3600) *
+          10,
       ) / 10,
   };
 }
@@ -92,44 +144,54 @@ function analyzeHabits(tracker, goals, tasks, allSubjects = []) {
 router.post("/recommendations", authMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { allSubjects = [] } = req.body; // Client sends all subjects from syllabusData
+    const { allSubjects = [], selectedSubject = null } = req.body;
     const tracker = await Tracker.findOne({ userId });
     const goals = await Goal.find({ userId });
     const tasks = await Task.find({ userId });
 
-    // Pass all subjects so analysis includes newly added subjects
-    const analysis = analyzeHabits(tracker, goals, tasks, allSubjects);
+    const analysis = analyzeHabits(
+      tracker,
+      goals,
+      tasks,
+      allSubjects,
+      selectedSubject,
+    );
 
-    if (!analysis || !analysis.weakestSubject) {
+    if (!analysis || !analysis.weakestArea) {
+      const msg = selectedSubject
+        ? `Start studying "${selectedSubject}" to get personal recommendations! Pick a topic from the roadmap and begin.`
+        : "Start your study journey! Pick any subject and begin with the first topic.";
       return res.json({
-        recommendation:
-          "Start your study journey! Pick any subject from the roadmap and begin with the first topic. Aim for at least 30 minutes today.",
+        recommendation: msg,
         priority: "Start Studying",
         analysis: { totalStudyHours: 0, newSubjects: allSubjects },
       });
     }
 
-    // Generate smart recommendation without LLM
     let recommendation = "";
     let priority = "";
 
-    // Check if there are newly added subjects to surface
-    if (analysis.newSubjects && analysis.newSubjects.length > 0) {
-      const newSubjectsList = analysis.newSubjects.slice(0, 3).join(", ");
-      recommendation = `You've added ${analysis.newSubjects.length} new subject(s): ${newSubjectsList}. Start with these before diving deeper into existing subjects. Then focus on "${analysis.weakestSubject.name}" which needs attention.`;
-      priority = `Start New Subjects: ${newSubjectsList}`;
-    } else if (analysis.reviseTopics > 3) {
-      recommendation = `You have ${analysis.reviseTopics} topics marked for revision. Focus on revising "${analysis.weakestSubject.name}" first — it has the least recent study time (${Math.round(analysis.weakestSubject.recentTime / 60)} min this week). Revision before new topics builds stronger retention.`;
-      priority = "Revision Sprint";
-    } else if (analysis.weakestSubject.recentTime < 1800) {
-      recommendation = `"${analysis.weakestSubject.name}" needs attention — only ${Math.round(analysis.weakestSubject.recentTime / 60)} minutes this week. Your strongest area "${analysis.strongestSubject.name}" has ${Math.round(analysis.strongestSubject.recentTime / 60)} min. Balance your schedule for better exam prep.`;
-      priority = `Focus: ${analysis.weakestSubject.name}`;
-    } else if (analysis.pendingTasks > 5) {
-      recommendation = `You have ${analysis.pendingTasks} pending tasks! Clear at least 3 today. Task completion momentum boosts confidence and helps maintain your study streak.`;
-      priority = "Clear Pending Tasks";
+    if (selectedSubject) {
+      // Subject specific rules
+      if (analysis.reviseTopics > 2) {
+        recommendation = `You have ${analysis.reviseTopics} topics in ${selectedSubject} that need revision. Prioritize reviewing "${analysis.weakestArea.title || analysis.weakestArea.id}" before moving to new syllabus items.`;
+        priority = `${selectedSubject} Revision`;
+      } else if (analysis.pendingTasks > 0) {
+        recommendation = `Focus on your pending tasks for ${selectedSubject}. Complete them to maintain your momentum in this subject.`;
+        priority = `${selectedSubject} Tasks`;
+      } else {
+        recommendation = `You've studied ${selectedSubject} for ${analysis.totalStudyHours} hours. Excellent progress! Your next focus should be "${analysis.weakestArea.title || analysis.weakestArea.id}" to ensure complete coverage.`;
+        priority = `${selectedSubject} Mastery`;
+      }
     } else {
-      recommendation = `Great balance! You've studied ${analysis.totalStudyHours} hours total across ${Object.keys(analysis.subjects).length} subjects. Keep pushing "${analysis.weakestSubject.name}" to match your other subjects. Consistency is key!`;
-      priority = "Maintain Momentum";
+      // General logic (fallback)
+      if (analysis.reviseTopics > 3) {
+        recommendation = `Overall, you have ${analysis.reviseTopics} topics to revise. Focus on ${analysis.weakestArea.name} as it has the least coverage recently.`;
+        priority = "Revision Sprint";
+      } else {
+        recommendation = `Great balance across ${Object.keys(analysis.subjects).length} subjects! Keep pushing ${analysis.weakestArea.name} which needs a bit more attention today.`;
+        priority = "Maintain Momentum";
+      }
     }
 
     res.json({ recommendation, priority, analysis });

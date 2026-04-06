@@ -1,9 +1,9 @@
-// Fast, free, production-grade text models that support system prompts
+// NVIDIA ONLY FREE MODELS (high-reliability pool)
 const TEXT_MODELS = [
-  "meta-llama/llama-3.3-70b-instruct:free", // Meta flagship, very reliable
-  "mistralai/mistral-small-3.1-24b-instruct:free", // Mistral, fast + reliable
-  "google/gemma-3-12b-it:free", // Google Gemma 3 12B, supports system msgs
-  "arcee-ai/trinity-large-preview:free", // Arcee, 131k context, solid fallback
+  "nvidia/llama-3.1-nemotron-70b-instruct:free",
+  "nvidia/nemotron-4-340b-instruct:free",
+  "nvidia/nemotron-3-super:free",
+  "nvidia/nemotron-3-nano-30b-a3b:free",
 ];
 
 const VISION_MODEL = "nvidia/nemotron-nano-12b-v2-vl:free";
