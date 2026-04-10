@@ -153,6 +153,17 @@ app.get("/api/global-chat", authMiddleware, async (req, res) => {
   }
 });
 
+// ─── ACHIEVEMENT PUBLIC ROUTE ────────────────────────────
+const Achievement = require("./models/Achievement");
+app.get("/api/achievements/latest", async (req, res) => {
+  try {
+    const achievement = await Achievement.findOne({ isActive: true }).sort({ createdAt: -1 });
+    res.json(achievement || null);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const activeLearners = new Map(); // userId -> { displayName, avatar, status }
 
 io.on("connection", (socket) => {
