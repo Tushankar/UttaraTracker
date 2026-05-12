@@ -4,40 +4,41 @@ const { authMiddleware } = require("../middleware/auth");
 const User = require("../models/User");
 const Tracker = require("../models/Tracker");
 const Task = require("../models/Task");
+const ExamAttempt = require("../models/ExamAttempt");
 const WeeklyChampion = require("../models/WeeklyChampion");
 
 // Helper: Precise IST boundary calculation
-function getISTStart(date = new Date(), type = 'day') {
+function getISTStart(date = new Date(), type = "day") {
   const istOffset = 5.5 * 60 * 60 * 1000;
   // Shift to IST to perform UTC calendar arithmetic on IST numbers
   const d = new Date(date.getTime() + istOffset);
-  
-  if (type === 'day') {
+
+  if (type === "day") {
     d.setUTCHours(0, 0, 0, 0);
-  } else if (type === 'week') {
+  } else if (type === "week") {
     d.setUTCHours(0, 0, 0, 0);
     const day = d.getUTCDay(); // 0 is Sun, 1 is Mon...
     const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
     d.setUTCDate(diff);
-  } else if (type === 'month') {
+  } else if (type === "month") {
     d.setUTCHours(0, 0, 0, 0);
     d.setUTCDate(1);
   }
-  
+
   // Shift back to UTC to get the true epoch time for that IST boundary
   return new Date(d.getTime() - istOffset);
 }
 
 // Keep for compatibility but refactor using the precise helper
 function getStartOfISTWeek(date) {
-  return getISTStart(date, 'week');
+  return getISTStart(date, "week");
 }
 
 // GET /api/leaderboard
 router.get("/", async (req, res) => {
   try {
     const users = await User.find({})
-      .select("displayName avatar focusPoints badges")
+      .select("displayName avatar focusPoints badges examCount")
       .sort({ focusPoints: -1 })
       .limit(50);
 
@@ -68,6 +69,7 @@ router.get("/", async (req, res) => {
         focusPoints: user.focusPoints,
         badgeCount: user.badges?.length || 0,
         lastStudied,
+        examCount: user.examCount || 0,
       };
     });
 
@@ -83,15 +85,21 @@ async function recalculateUserPoints(userId) {
   try {
     const tracker = await Tracker.findOne({ userId });
     const tasks = await Task.find({ userId });
+    const exams = await ExamAttempt.find({ userId, completed: true });
 
     // Focus Points formula:
-    // study_hours * 10 + tasks_completed * 5 + streak_days * 3
+    // study_hours * 10 + tasks_completed * 5 + streak_days * 3 + exam_points
     const totalSeconds = (tracker?.sessions || []).reduce(
       (acc, s) => acc + s.duration,
       0,
     );
     const studyHours = totalSeconds / 3600;
     const completedTasks = tasks.filter((t) => t.completed).length;
+
+    // Calculate exam points: 50 + score * 10 for each completed exam
+    const examPoints = exams.reduce((total, exam) => {
+      return total + (50 + exam.score * 10);
+    }, 0);
 
     // Streak calculation
     const dayTotals = {};
@@ -120,17 +128,18 @@ async function recalculateUserPoints(userId) {
     }
 
     const focusPoints = Math.round(
-      studyHours * 10 + completedTasks * 5 + streak * 3,
+      studyHours * 10 + completedTasks * 5 + streak * 3 + examPoints,
     );
 
     await User.findByIdAndUpdate(userId, { focusPoints });
-    
+
     return {
       focusPoints,
       breakdown: {
         studyHours: Math.round(studyHours * 10) / 10,
         completedTasks,
         streak,
+        examPoints,
       },
     };
   } catch (error) {
@@ -197,7 +206,9 @@ router.get("/weekly-winner", async (req, res) => {
           } catch (saveErr) {
             // If another request saved it simultaneously, catch the duplicate key error
             if (saveErr.code === 11000) {
-              winner = await WeeklyChampion.findOne({ weekStart: lastWeekStart });
+              winner = await WeeklyChampion.findOne({
+                weekStart: lastWeekStart,
+              });
             } else {
               throw saveErr;
             }
@@ -282,28 +293,28 @@ router.get("/time-based", async (req, res) => {
     const trackers = await Tracker.find({}).select("userId sessions");
 
     const now = new Date();
-    
+
     // Get start of today (IST)
-    const startOfToday = getISTStart(now, 'day');
+    const startOfToday = getISTStart(now, "day");
 
     // Get start of week (IST)
-    const startOfWeek = getISTStart(now, 'week');
+    const startOfWeek = getISTStart(now, "week");
 
     // Get start of month (IST)
-    const startOfMonth = getISTStart(now, 'month');
+    const startOfMonth = getISTStart(now, "month");
 
     // Optimization: Create a Map of userId -> tracker
     const trackerMap = new Map();
-    trackers.forEach(t => trackerMap.set(t.userId.toString(), t));
+    trackers.forEach((t) => trackerMap.set(t.userId.toString(), t));
 
     const timeLeaderboard = users.map((user) => {
       const tracker = trackerMap.get(user._id.toString());
-      
+
       let todayHours = 0;
       let weekHours = 0;
       let monthHours = 0;
       let overallHours = 0;
- 
+
       if (tracker && tracker.sessions) {
         tracker.sessions.forEach((s) => {
           const sDate = new Date(s.timestamp);
@@ -327,7 +338,7 @@ router.get("/time-based", async (req, res) => {
         id: user._id,
         displayName: user.displayName,
         avatar: user.avatar,
-        todayHours,     // Stop rounding in backend to preserve precision
+        todayHours, // Stop rounding in backend to preserve precision
         weekHours,
         monthHours,
         overallHours,

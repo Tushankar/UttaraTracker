@@ -111,6 +111,7 @@ const chatRoutes = require("./routes/chat");
 const taskRoutes = require("./routes/tasks");
 const goalRoutes = require("./routes/goals");
 const adminRoutes = require("./routes/admin");
+const examRoutes = require("./routes/exams");
 
 // Route mounts
 app.use("/api/auth", authRoutes);
@@ -121,6 +122,7 @@ app.use("/api/chat", chatRoutes);
 app.use("/api/tasks", taskRoutes);
 app.use("/api/goals", goalRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/exams", examRoutes);
 
 // ─── GLOBAL CHAT ROUTES & SOCKETS ────────────────────────
 const GlobalMessage = require("./models/GlobalMessage");
