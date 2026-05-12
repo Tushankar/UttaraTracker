@@ -19,6 +19,7 @@ const ExamAttemptSchema = new mongoose.Schema(
         correct: { type: Number, required: true },
         selected: { type: Number, default: null },
         subject: { type: String },
+        explanation: { type: String },
       },
     ],
     score: {
@@ -44,6 +45,14 @@ const ExamAttemptSchema = new mongoose.Schema(
     completed: {
       type: Boolean,
       default: false,
+    },
+    isMegaExam: {
+      type: Boolean,
+      default: false,
+    },
+    weekKey: {
+      type: String, // e.g. "2026-W19"
+      default: "",
     },
   },
   { timestamps: true }
