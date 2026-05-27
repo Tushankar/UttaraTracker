@@ -89,7 +89,7 @@ async function syncCollection(modelName, primaryModel, backupModel) {
         }
       } catch (itemError) {
         // Handle unique index duplicate key error (like email for Users)
-        if (itemError.code === 11000 && modelName === 'User' && doc.email) {
+        if (itemError.code === 11000 && modelName === "User" && doc.email) {
           try {
             // Remove the conflicting older document holding the same email
             await backupModel.deleteOne({ email: doc.email });
@@ -101,10 +101,13 @@ async function syncCollection(modelName, primaryModel, backupModel) {
             );
             continue; // Successfully resolved
           } catch (retryError) {
-            console.error(`⚠️ Retry failed for User ${doc._id}:`, retryError.message);
+            console.error(
+              `⚠️ Retry failed for User ${doc._id}:`,
+              retryError.message,
+            );
           }
         }
-        
+
         console.error(
           `⚠️ Sync error for ${modelName} ${doc._id}:`,
           itemError.message,
