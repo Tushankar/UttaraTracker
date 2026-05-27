@@ -61,18 +61,18 @@ mongoose
 // Admin Seeding Logic
 async function seedAdmin() {
   try {
-    const User = require('./models/User');
-    const adminEmail = 'tushankarsaha0@gmail.com';
-    const adminPassword = '123456';
-    
+    const User = require("./models/User");
+    const adminEmail = "tushankarsaha0@gmail.com";
+    const adminPassword = "123456";
+
     const existingAdmin = await User.findOne({ email: adminEmail });
     if (existingAdmin) {
-      if (existingAdmin.role !== 'admin') {
-        existingAdmin.role = 'admin';
+      if (existingAdmin.role !== "admin") {
+        existingAdmin.role = "admin";
         await existingAdmin.save();
-        console.log('✅ Existing user promoted to Admin.');
+        console.log("✅ Existing user promoted to Admin.");
       } else {
-        console.log('✅ Admin user already exists and is configured.');
+        console.log("✅ Admin user already exists and is configured.");
       }
       return;
     }
@@ -80,14 +80,14 @@ async function seedAdmin() {
     const newAdmin = new User({
       email: adminEmail,
       password: adminPassword,
-      displayName: 'Tushankar Saha',
-      role: 'admin'
+      displayName: "Tushankar Saha",
+      role: "admin",
     });
-    
+
     await newAdmin.save();
-    console.log('✅ Admin user created successfully.');
+    console.log("✅ Admin user created successfully.");
   } catch (err) {
-    console.error('❌ Error seeding admin user:', err);
+    console.error("❌ Error seeding admin user:", err);
   }
 }
 
@@ -105,7 +105,10 @@ const TimerState = require("./models/TimerState");
 const { authMiddleware, optionalAuth } = require("./middleware/auth");
 const authRoutes = require("./routes/auth");
 const aiRoutes = require("./routes/ai");
-const { router: leaderboardRoutes, recalculateUserPoints } = require("./routes/leaderboard");
+const {
+  router: leaderboardRoutes,
+  recalculateUserPoints,
+} = require("./routes/leaderboard");
 const badgeRoutes = require("./routes/badges");
 const chatRoutes = require("./routes/chat");
 const taskRoutes = require("./routes/tasks");
@@ -159,7 +162,9 @@ app.get("/api/global-chat", authMiddleware, async (req, res) => {
 const Achievement = require("./models/Achievement");
 app.get("/api/achievements/latest", async (req, res) => {
   try {
-    const achievement = await Achievement.findOne({ isActive: true }).sort({ createdAt: -1 });
+    const achievement = await Achievement.findOne({ isActive: true }).sort({
+      createdAt: -1,
+    });
     res.json(achievement || null);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -490,7 +495,10 @@ app.post("/api/timer/stop", authMiddleware, async (req, res) => {
         try {
           await recalculateUserPoints(userId);
         } catch (pointErr) {
-          console.error("Error recalcuating points after timer stop:", pointErr);
+          console.error(
+            "Error recalcuating points after timer stop:",
+            pointErr,
+          );
         }
       }
     }
@@ -658,7 +666,10 @@ app.post("/api/sessions", authMiddleware, async (req, res) => {
     try {
       await recalculateUserPoints(userId);
     } catch (pointErr) {
-      console.error("Error recalcuating points after manual session:", pointErr);
+      console.error(
+        "Error recalcuating points after manual session:",
+        pointErr,
+      );
     }
 
     res

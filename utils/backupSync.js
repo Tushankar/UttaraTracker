@@ -72,7 +72,10 @@ async function syncCollection(modelName, primaryModel, backupModel) {
   try {
     const documents = await primaryModel.find({}).lean();
 
-    if (documents.length === 0) return;
+    if (documents.length === 0) {
+      console.log(`✅ Synced 0 ${modelName} documents to backup`);
+      return;
+    }
 
     for (const doc of documents) {
       try {
@@ -85,6 +88,23 @@ async function syncCollection(modelName, primaryModel, backupModel) {
           );
         }
       } catch (itemError) {
+        // Handle unique index duplicate key error (like email for Users)
+        if (itemError.code === 11000 && modelName === 'User' && doc.email) {
+          try {
+            // Remove the conflicting older document holding the same email
+            await backupModel.deleteOne({ email: doc.email });
+            // Retry the upsert
+            await backupModel.updateOne(
+              { _id: doc._id },
+              { $set: doc },
+              { upsert: true },
+            );
+            continue; // Successfully resolved
+          } catch (retryError) {
+            console.error(`⚠️ Retry failed for User ${doc._id}:`, retryError.message);
+          }
+        }
+        
         console.error(
           `⚠️ Sync error for ${modelName} ${doc._id}:`,
           itemError.message,
